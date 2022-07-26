@@ -1,0 +1,10 @@
+version: "2"
+services:
+  adafruit-vb:
+    restart: always
+    privileged: true
+    labels:
+      io.balena.features.kernel-modules: 1
+    build:
+      context: .
+      dockerfile: Dockerfile.template

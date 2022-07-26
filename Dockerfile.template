@@ -1,0 +1,100 @@
+# Built for Balena OS 2.75.0+rev1 as Adafruit Voice Bonnet has compatibility issues with newer firmware
+
+# Development:
+# https://api.balena-cloud.com/download?deviceType=raspberrypi4-64&version=2.75.0+rev1.dev&fileType=.zip
+
+# Production:
+# https://api.balena-cloud.com/download?deviceType=raspberrypi4-64&version=2.75.0+rev1.prod&fileType=.zip
+
+FROM ubuntu:jammy-20220531 as kernel-build
+
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+
+RUN apt-get update && \
+	apt-get install -y \
+	awscli \
+	bc \
+	bison \
+	build-essential \
+	curl \
+	flex \
+	git \
+	libelf-dev \
+	libssl-dev \
+	wget
+
+WORKDIR /usr/src/app
+
+ENV OS_VERSION '2.75.0+rev1.dev'
+
+RUN git clone --depth 1 -b master https://github.com/balena-os/kernel-module-build.git . && \
+	git reset --hard f889851c5d00890b51b27c63eaa59a976063265a
+
+RUN git clone --depth 1 -b v5.5 https://github.com/HinTak/seeed-voicecard.git && \
+	git -C ./seeed-voicecard reset --hard f8abf23b1ec59a0e38ea675e08734cc2f9c6c6ff
+
+RUN BALENA_MACHINE_NAME=%%BALENA_MACHINE_NAME%% ./build.sh build --device %%BALENA_MACHINE_NAME%% --os-version "$OS_VERSION" --src seeed-voicecard
+
+RUN mkdir voicecard modules overlays
+
+RUN cp output/seeed-voicecard_%%BALENA_MACHINE_NAME%%_"$OS_VERSION"/*.conf voicecard/ && \
+	cp output/seeed-voicecard_%%BALENA_MACHINE_NAME%%_"$OS_VERSION"/*.state voicecard/ && \
+	cp output/seeed-voicecard_%%BALENA_MACHINE_NAME%%_"$OS_VERSION"/*.dtbo overlays/ && \
+	cp output/seeed-voicecard_%%BALENA_MACHINE_NAME%%_"$OS_VERSION"/*.ko modules/
+
+
+FROM debian:bullseye-20220711-slim AS python-build
+
+ENV PATH=/root/.local/bin:$PATH
+
+RUN apt-get update && \
+	apt-get install -y --no-install-recommends \
+	gcc \
+	python3-dev \
+	python3-pip
+
+RUN pip3 install --upgrade --no-cache-dir \
+	setuptools \
+	wheel
+
+RUN pip3 install --user --upgrade --no-cache-dir \
+	adafruit-blinka \
+	adafruit-circuitpython-bmp280 \
+	adafruit-circuitpython-dotstar \
+	adafruit-circuitpython-motor \
+	RPi.GPIO
+
+
+FROM debian:bullseye-20220711-slim
+
+WORKDIR /root
+
+RUN apt-get update && \
+	apt-get install -y --no-install-recommends \
+	alsa-utils \
+	ca-certificates \
+	i2c-tools \
+	libasound2-plugins \
+	python3 && \
+	apt-get clean && \
+	rm -rf /var/lib/apt/lists/*
+
+COPY --from=python-build /root/.local /root/.local
+
+COPY --from=kernel-build /usr/src/app/voicecard/ /etc/voicecard/
+COPY --from=kernel-build /usr/src/app/overlays/ /boot/overlays/
+COPY --from=kernel-build /usr/src/app/modules/ modules/
+
+RUN rm -f /usr/lib/arm-linux-gnueabihf/alsa-lib/libasound_module_pcm_ac108.so \
+	/etc/asound.conf \
+	/var/lib/alsa/asound.state
+
+RUN ln -s /etc/voicecard/asound_2mic.conf /etc/asound.conf && \
+	ln -s /etc/voicecard/wm8960_asound.state /var/lib/alsa/asound.state
+
+COPY start.sh .
+
+RUN chmod +x start.sh
+
+CMD ["./start.sh"]
