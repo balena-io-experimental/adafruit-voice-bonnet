@@ -28,10 +28,10 @@ WORKDIR /usr/src/app
 
 ENV OS_VERSION '2.75.0+rev1.dev'
 
-RUN git clone --depth 1 -b master https://github.com/balena-os/kernel-module-build.git . && \
+RUN git clone -b master https://github.com/balena-os/kernel-module-build.git . && \
 	git reset --hard f889851c5d00890b51b27c63eaa59a976063265a
 
-RUN git clone --depth 1 -b v5.5 https://github.com/HinTak/seeed-voicecard.git && \
+RUN git clone -b v5.5 https://github.com/HinTak/seeed-voicecard.git && \
 	git -C ./seeed-voicecard reset --hard f8abf23b1ec59a0e38ea675e08734cc2f9c6c6ff
 
 RUN BALENA_MACHINE_NAME=%%BALENA_MACHINE_NAME%% ./build.sh build --device %%BALENA_MACHINE_NAME%% --os-version "$OS_VERSION" --src seeed-voicecard
